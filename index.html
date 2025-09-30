@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Xadrez Local</title>
+<style>
+body { display:flex; justify-content:center; align-items:center; flex-direction:column; margin:0; font-family:Arial; background:#f0f0f0; }
+#board { display:grid; grid-template-columns:repeat(8,80px); grid-template-rows:repeat(8,80px); border:4px solid #333; box-shadow:0 0 20px rgba(0,0,0,0.3); }
+.square { width:80px; height:80px; display:flex; justify-content:center; align-items:center; font-size:55px; transition: background 0.2s; }
+.light { background:#eeeed2; }
+.dark { background:#769656; }
+.highlight { background:#aaffaa !important; }
+.capture { background:#ffaaaa !important; }
+.attack { background:#ffdddd !important; }
+.defense { background:#aaddff !important; }
+.last-move { background:#a0e0ff !important; }
+.king-check { animation: blink 0.5s infinite alternate; }
+.dragging { position:absolute; pointer-events:none; z-index:1000; font-size:55px; transition:left 0.05s, top 0.05s; }
+@keyframes blink { 0%{background:#e06666;} 100%{background:#ff6666;} }
+#message { margin-top:15px; font-size:20px; font-weight:bold; color:#333; }
+</style>
+</head>
+<body>
+<div id="board"></div>
+<div id="message"></div>
+<audio id="moveSound" src="https://freesound.org/data/previews/20/20072_51528-lq.mp3"></audio>
+<audio id="captureSound" src="https://freesound.org/data/previews/40/40449_634166-lq.mp3"></audio>
+
+<script>
+// -------------------- Configuração --------------------
+let board = [
+["r","n","b","q","k","b","n","r"],
+["p","p","p","p","p","p","p","p"],
+[null,null,null,null,null,null,null,null],
+[null,null,null,null,null,null,null,null],
+[null,null,null,null,null,null,null,null],
+[null,null,null,null,null,null,null,null],
+["P","P","P","P","P","P","P","P"],
+["R","N","B","Q","K","B","N","R"]
+];
+const pieceSymbols = { P:"♙",R:"♖",N:"♘",B:"♗",Q:"♕",K:"♔", p:"♟",r:"♜",n:"♞",b:"♝",q:"♛",k:"♚" };
+let turn="w", gameOver=false, enPassant=null;
+let castlingRights = { w:{K:true,Q:true}, b:{K:true,Q:true} };
+let dragPiece=null, dragOrigin={r:0,c:0};
+let highlighted=[], attackSquares=[], lastMove=[];
+
+// -------------------- Utilitários --------------------
+function isWhite(p){ return p && p===p.toUpperCase(); }
+function inBounds(r,c){ return r>=0 && r<8 && c>=0 && c<8; }
+function setMessage(msg){ document.getElementById("message").textContent = msg; }
+function playSound(capture=false){ let snd = capture?document.getElementById("captureSound"):document.getElementById("moveSound"); snd.currentTime=0; snd.play(); }
+
+// -------------------- Desenho --------------------
+function drawBoard(){
+  const boardDiv = document.getElementById("board");
+  boardDiv.innerHTML="";
+  const kingPos=findKing(turn);
+  const inCheck = kingPos && isInCheck(turn);
+  for(let r=0;r<8;r++){
+    for(let c=0;c<8;c++){
+      let sq=document.createElement("div");
+      sq.className="square "+((r+c)%2?"dark":"light");
+      sq.dataset.row=r; sq.dataset.col=c;
+      if(board[r][c]) sq.textContent = pieceSymbols[board[r][c]];
+      if(inCheck && kingPos.r===r && kingPos.c===c) sq.classList.add("king-check");
+      if(highlighted.some(h=>h[0]===r && h[1]===c)) sq.classList.add("highlight");
+      if(attackSquares.some(a=>a[0]===r && a[1]===c) && !highlighted.some(h=>h[0]===r && h[1]===c)) sq.classList.add("attack");
+      if(lastMove.some(m=>m[0]===r && m[1]===c)) sq.classList.add("last-move");
+      boardDiv.appendChild(sq);
+    }
+  }
+}
+
+// -------------------- Lógica do Xadrez --------------------
+function findKing(color){ for(let r=0;r<8;r++) for(let c=0;c<8;c++){ let p=board[r][c]; if(p && ((color==="w"&&p==="K")||(color==="b"&&p==="k"))) return {r,c}; } return null; }
+function isSquareAttacked(r,c,byColor){ for(let i=0;i<8;i++) for(let j=0;j<8;j++){ let p=board[i][j]; if(!p) continue; if(isWhite(p)!==(byColor==="w")) continue; let moves=generateMoves(i,j,true); for(let m of moves) if(m[0]===r && m[1]===c) return true; } return false; }
+function isInCheck(color){ const king=findKing(color); return king && isSquareAttacked(king.r,king.c,color==="w"?"b":"w"); }
+
+function generateMoves(r,c,ignoreCheck=false){
+  let moves=[]; let p=board[r][c]; if(!p) return moves;
+  let color=isWhite(p)?"w":"b";
+  const dirs={N:[[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]], B:[[1,1],[1,-1],[-1,1],[-1,-1]], R:[[1,0],[-1,0],[0,1],[0,-1]], Q:[[1,1],[1,-1],[-1,1],[-1,-1],[1,0],[-1,0],[0,1],[0,-1]]};
+  switch(p.toUpperCase()){
+    case "P": { let dir=color==="w"?-1:1; if(inBounds(r+dir,c) && !board[r+dir][c]) moves.push([r+dir,c]); if((color==="w"&&r===6)||(color==="b"&&r===1)) if(!board[r+dir][c] && !board[r+2*dir][c]) moves.push([r+2*dir,c]); for(let dc of [-1,1]){ let nr=r+dir,nc=c+dc; if(inBounds(nr,nc) && board[nr][nc] && isWhite(board[nr][nc])!==isWhite(p)) moves.push([nr,nc]); } if(enPassant && Math.abs(enPassant.c-c)===1 && enPassant.r===r+dir) moves.push([enPassant.r,enPassant.c]); break; }
+    case "N": for(let d of dirs.N){let nr=r+d[0],nc=c+d[1];if(inBounds(nr,nc)&&(!board[nr][nc]||isWhite(board[nr][nc])!==isWhite(p))) moves.push([nr,nc]);} break;
+    case "B": case "R": case "Q": let useDirs=p.toUpperCase()==="B"?dirs.B:p.toUpperCase()==="R"?dirs.R:dirs.Q; for(let d of useDirs){ let nr=r+d[0],nc=c+d[1]; while(inBounds(nr,nc)){ if(!board[nr][nc]) moves.push([nr,nc]); else{ if(isWhite(board[nr][nc])!==isWhite(p)) moves.push([nr,nc]); break; } nr+=d[0]; nc+=d[1];}} break;
+    case "K": for(let d of dirs.Q){let nr=r+d[0],nc=c+d[1]; if(inBounds(nr,nc)&&(!board[nr][nc]||isWhite(board[nr][nc])!==isWhite(p))) moves.push([nr,nc]);}
+      if(!ignoreCheck){
+        // Roque
+        if(color==="w" && r===7 && c===4){
+          if(castlingRights.w.K && !board[7][5] && !board[7][6] && !isSquareAttacked(7,4,"b") && !isSquareAttacked(7,5,"b") && !isSquareAttacked(7,6,"b")) moves.push([7,6]);
+          if(castlingRights.w.Q && !board[7][1] && !board[7][2] && !board[7][3] && !isSquareAttacked(7,4,"b") && !isSquareAttacked(7,3,"b") && !isSquareAttacked(7,2,"b")) moves.push([7,2]);
+        }
+        if(color==="b" && r===0 && c===4){
+          if(castlingRights.b.K && !board[0][5] && !board[0][6] && !isSquareAttacked(0,4,"w") && !isSquareAttacked(0,5,"w") && !isSquareAttacked(0,6,"w")) moves.push([0,6]);
+          if(castlingRights.b.Q && !board[0][1] && !board[0][2] && !board[0][3] && !isSquareAttacked(0,4,"w") && !isSquareAttacked(0,3,"w") && !isSquareAttacked(0,2,"w")) moves.push([0,2]);
+        }
+      } break;
+  } return moves;
+}
+
+function generateLegalMoves(r,c){ let moves=generateMoves(r,c); let legal=[]; let piece=board[r][c]; let color=isWhite(piece)?"w":"b"; for(let m of moves){ let snapshot=board.map(row=>row.slice()); let castBackup=JSON.parse(JSON.stringify(castlingRights)); let enBackup=enPassant; board[m[0]][m[1]]=piece; board[r][c]=null; if(piece.toUpperCase()==="K" && Math.abs(m[1]-c)===2){ if(m[1]===6){ board[r][5]=board[r][7]; board[r][7]=null; } if(m[1]===2){ board[r][3]=board[r][0]; board[r][0]=null; } } if(!isInCheck(color)) legal.push(m); board=snapshot; castlingRights=castBackup; enPassant=enBackup; } return legal; }
+
+function hasLegalMoves(color){ for(let r=0;r<8;r++) for(let c=0;c<8;c++){ let p=board[r][c]; if(!p) continue; if((color==="w" && isWhite(p))||(color==="b"&&!isWhite(p))) if(generateLegalMoves(r,c).length>0) return true; } return false; }
+
+function checkGameOver(){ if(!hasLegalMoves(turn)){ if(isInCheck(turn)) setMessage(`Xeque-mate! ${(turn==="w")?"Pretas":"Brancas"} venceram!`); else setMessage("Empate por afogamento!"); gameOver=true; return true; } return false; }
+
+function promote(r,c,color){ let choice=prompt("Promover peão para (Q,R,B,N):","Q"); if(!["Q","R","B","N"].includes(choice.toUpperCase())) choice="Q"; board[r][c]=color==="w"?choice.toUpperCase():choice.toLowerCase(); }
+
+// -------------------- Drag & Drop --------------------
+const boardDiv = document.getElementById("board");
+boardDiv.addEventListener("mousedown", e=>{
+  if(!e.target.dataset.row) return;
+  let r=+e.target.dataset.row,c=+e.target.dataset.col;
+  let p=board[r][c]; if(!p || (turn==="w"&&!isWhite(p))||(turn==="b"&&isWhite(p))) return;
+  dragPiece=document.createElement("div"); dragPiece.className="dragging"; dragPiece.textContent=pieceSymbols[p];
+  dragPiece.style.left=e.pageX-40+"px"; dragPiece.style.top=e.pageY-40+"px";
+  document.body.appendChild(dragPiece); dragOrigin={r,c};
+  highlighted = generateLegalMoves(r,c);
+  attackSquares = generateMoves(r,c,true).filter(m=>board[m[0]][m[1]]);
+  drawBoard();
+});
+document.addEventListener("mousemove", e=>{ if(dragPiece){ dragPiece.style.left=e.pageX-40+"px"; dragPiece.style.top=e.pageY-40+"px"; } });
+document.addEventListener("mouseup", e=>{
+  if(!dragPiece) return;
+  let x=e.clientX, y=e.clientY;
+  let rect=boardDiv.getBoundingClientRect();
+  let c=Math.floor((x-rect.left)/80), r=Math.floor((y-rect.top)/80);
+  let legal=generateLegalMoves(dragOrigin.r,dragOrigin.c);
+  if(inBounds(r,c) && legal.some(m=>m[0]===r && m[1]===c)){
+    let p=board[dragOrigin.r][dragOrigin.c]; let capture = board[r][c]!=null;
+    board[r][c]=p; board[dragOrigin.r][dragOrigin.c]=null; lastMove=[[dragOrigin.r,dragOrigin.c],[r,c]];
+    if(p.toUpperCase()==="K" && Math.abs(c-dragOrigin.c)===2){
+      if(c===6){ board[r][5]=board[r][7]; board[r][7]=null; }
+      if(c===2){ board[r][3]=board[r][0]; board[r][0]=null; }
+    }
+    if(p==="P" && r===0) promote(r,c,"w");
+    if(p==="p" && r===7) promote(r,c,"b");
+    turn=turn==="w"?"b":"w";
+    highlighted=[]; attackSquares=[]; drawBoard();
+    playSound(capture);
+    if(!checkGameOver()) setMessage(`Turno: ${(turn==="w")?"Brancas":"Pretas"}`);
+  }
+  dragPiece.remove(); dragPiece=null; drawBoard();
+});
+
+// Inicial
+drawBoard();
+setMessage(`Turno: ${(turn==="w")?"Brancas":"Pretas"}`);
+</script>
+</body>
+</html>
