@@ -6,16 +6,13 @@
 <style>
 body { display:flex; justify-content:center; align-items:center; flex-direction:column; margin:0; font-family:Arial; background:#f0f0f0; }
 #board { display:grid; grid-template-columns:repeat(8,80px); grid-template-rows:repeat(8,80px); border:4px solid #333; box-shadow:0 0 20px rgba(0,0,0,0.3); }
-.square { width:80px; height:80px; display:flex; justify-content:center; align-items:center; font-size:55px; transition: background 0.2s; }
+.square { width:80px; height:80px; display:flex; justify-content:center; align-items:center; font-size:55px; transition: background 0.2s; cursor:pointer; }
 .light { background:#eeeed2; }
 .dark { background:#769656; }
 .highlight { background:#aaffaa !important; }
-.capture { background:#ffaaaa !important; }
-.attack { background:#ffdddd !important; }
-.defense { background:#aaddff !important; }
+.attack { background:#ffaaaa !important; }
 .last-move { background:#a0e0ff !important; }
 .king-check { animation: blink 0.5s infinite alternate; }
-.dragging { position:absolute; pointer-events:none; z-index:1000; font-size:55px; transition:left 0.05s, top 0.05s; }
 @keyframes blink { 0%{background:#e06666;} 100%{background:#ff6666;} }
 #message { margin-top:15px; font-size:20px; font-weight:bold; color:#333; }
 </style>
@@ -41,8 +38,7 @@ let board = [
 const pieceSymbols = { P:"♙",R:"♖",N:"♘",B:"♗",Q:"♕",K:"♔", p:"♟",r:"♜",n:"♞",b:"♝",q:"♛",k:"♚" };
 let turn="w", gameOver=false, enPassant=null;
 let castlingRights = { w:{K:true,Q:true}, b:{K:true,Q:true} };
-let dragPiece=null, dragOrigin={r:0,c:0};
-let highlighted=[], attackSquares=[], lastMove=[];
+let highlighted=[], lastMove=[], selected=null;
 
 // -------------------- Utilitários --------------------
 function isWhite(p){ return p && p===p.toUpperCase(); }
@@ -64,8 +60,8 @@ function drawBoard(){
       if(board[r][c]) sq.textContent = pieceSymbols[board[r][c]];
       if(inCheck && kingPos.r===r && kingPos.c===c) sq.classList.add("king-check");
       if(highlighted.some(h=>h[0]===r && h[1]===c)) sq.classList.add("highlight");
-      if(attackSquares.some(a=>a[0]===r && a[1]===c) && !highlighted.some(h=>h[0]===r && h[1]===c)) sq.classList.add("attack");
       if(lastMove.some(m=>m[0]===r && m[1]===c)) sq.classList.add("last-move");
+      sq.addEventListener("click", onSquareClick);
       boardDiv.appendChild(sq);
     }
   }
@@ -86,7 +82,6 @@ function generateMoves(r,c,ignoreCheck=false){
     case "B": case "R": case "Q": let useDirs=p.toUpperCase()==="B"?dirs.B:p.toUpperCase()==="R"?dirs.R:dirs.Q; for(let d of useDirs){ let nr=r+d[0],nc=c+d[1]; while(inBounds(nr,nc)){ if(!board[nr][nc]) moves.push([nr,nc]); else{ if(isWhite(board[nr][nc])!==isWhite(p)) moves.push([nr,nc]); break; } nr+=d[0]; nc+=d[1];}} break;
     case "K": for(let d of dirs.Q){let nr=r+d[0],nc=c+d[1]; if(inBounds(nr,nc)&&(!board[nr][nc]||isWhite(board[nr][nc])!==isWhite(p))) moves.push([nr,nc]);}
       if(!ignoreCheck){
-        // Roque
         if(color==="w" && r===7 && c===4){
           if(castlingRights.w.K && !board[7][5] && !board[7][6] && !isSquareAttacked(7,4,"b") && !isSquareAttacked(7,5,"b") && !isSquareAttacked(7,6,"b")) moves.push([7,6]);
           if(castlingRights.w.Q && !board[7][1] && !board[7][2] && !board[7][3] && !isSquareAttacked(7,4,"b") && !isSquareAttacked(7,3,"b") && !isSquareAttacked(7,2,"b")) moves.push([7,2]);
@@ -99,7 +94,26 @@ function generateMoves(r,c,ignoreCheck=false){
   } return moves;
 }
 
-function generateLegalMoves(r,c){ let moves=generateMoves(r,c); let legal=[]; let piece=board[r][c]; let color=isWhite(piece)?"w":"b"; for(let m of moves){ let snapshot=board.map(row=>row.slice()); let castBackup=JSON.parse(JSON.stringify(castlingRights)); let enBackup=enPassant; board[m[0]][m[1]]=piece; board[r][c]=null; if(piece.toUpperCase()==="K" && Math.abs(m[1]-c)===2){ if(m[1]===6){ board[r][5]=board[r][7]; board[r][7]=null; } if(m[1]===2){ board[r][3]=board[r][0]; board[r][0]=null; } } if(!isInCheck(color)) legal.push(m); board=snapshot; castlingRights=castBackup; enPassant=enBackup; } return legal; }
+function generateLegalMoves(r,c){ 
+  let moves=generateMoves(r,c); 
+  let legal=[]; 
+  let piece=board[r][c]; 
+  let color=isWhite(piece)?"w":"b"; 
+  for(let m of moves){ 
+    let snapshot=board.map(row=>row.slice()); 
+    let castBackup=JSON.parse(JSON.stringify(castlingRights)); 
+    let enBackup=enPassant; 
+    board[m[0]][m[1]]=piece; 
+    board[r][c]=null; 
+    if(piece.toUpperCase()==="K" && Math.abs(m[1]-c)===2){ 
+      if(m[1]===6){ board[r][5]=board[r][7]; board[r][7]=null; } 
+      if(m[1]===2){ board[r][3]=board[r][0]; board[r][0]=null; } 
+    } 
+    if(!isInCheck(color)) legal.push(m); 
+    board=snapshot; castlingRights=castBackup; enPassant=enBackup; 
+  } 
+  return legal; 
+}
 
 function hasLegalMoves(color){ for(let r=0;r<8;r++) for(let c=0;c<8;c++){ let p=board[r][c]; if(!p) continue; if((color==="w" && isWhite(p))||(color==="b"&&!isWhite(p))) if(generateLegalMoves(r,c).length>0) return true; } return false; }
 
@@ -107,42 +121,37 @@ function checkGameOver(){ if(!hasLegalMoves(turn)){ if(isInCheck(turn)) setMessa
 
 function promote(r,c,color){ let choice=prompt("Promover peão para (Q,R,B,N):","Q"); if(!["Q","R","B","N"].includes(choice.toUpperCase())) choice="Q"; board[r][c]=color==="w"?choice.toUpperCase():choice.toLowerCase(); }
 
-// -------------------- Drag & Drop --------------------
-const boardDiv = document.getElementById("board");
-boardDiv.addEventListener("mousedown", e=>{
-  if(!e.target.dataset.row) return;
-  let r=+e.target.dataset.row,c=+e.target.dataset.col;
-  let p=board[r][c]; if(!p || (turn==="w"&&!isWhite(p))||(turn==="b"&&isWhite(p))) return;
-  dragPiece=document.createElement("div"); dragPiece.className="dragging"; dragPiece.textContent=pieceSymbols[p];
-  dragPiece.style.left=e.pageX-40+"px"; dragPiece.style.top=e.pageY-40+"px";
-  document.body.appendChild(dragPiece); dragOrigin={r,c};
-  highlighted = generateLegalMoves(r,c);
-  attackSquares = generateMoves(r,c,true).filter(m=>board[m[0]][m[1]]);
-  drawBoard();
-});
-document.addEventListener("mousemove", e=>{ if(dragPiece){ dragPiece.style.left=e.pageX-40+"px"; dragPiece.style.top=e.pageY-40+"px"; } });
-document.addEventListener("mouseup", e=>{
-  if(!dragPiece) return;
-  let x=e.clientX, y=e.clientY;
-  let rect=boardDiv.getBoundingClientRect();
-  let c=Math.floor((x-rect.left)/80), r=Math.floor((y-rect.top)/80);
-  let legal=generateLegalMoves(dragOrigin.r,dragOrigin.c);
-  if(inBounds(r,c) && legal.some(m=>m[0]===r && m[1]===c)){
-    let p=board[dragOrigin.r][dragOrigin.c]; let capture = board[r][c]!=null;
-    board[r][c]=p; board[dragOrigin.r][dragOrigin.c]=null; lastMove=[[dragOrigin.r,dragOrigin.c],[r,c]];
-    if(p.toUpperCase()==="K" && Math.abs(c-dragOrigin.c)===2){
-      if(c===6){ board[r][5]=board[r][7]; board[r][7]=null; }
-      if(c===2){ board[r][3]=board[r][0]; board[r][0]=null; }
+// -------------------- Clique --------------------
+function onSquareClick(e){
+  if(gameOver) return;
+  let r=+e.target.dataset.row, c=+e.target.dataset.col;
+  if(!selected){ 
+    let p=board[r][c]; 
+    if(!p) return;
+    if((turn==="w" && !isWhite(p)) || (turn==="b" && isWhite(p))) return;
+    selected={r,c}; 
+    highlighted=generateLegalMoves(r,c); 
+  } else {
+    let legal=generateLegalMoves(selected.r,selected.c);
+    if(legal.some(m=>m[0]===r && m[1]===c)){
+      let p=board[selected.r][selected.c]; 
+      let capture=board[r][c]!=null;
+      board[r][c]=p; board[selected.r][selected.c]=null; 
+      lastMove=[[selected.r,selected.c],[r,c]];
+      if(p.toUpperCase()==="K" && Math.abs(c-selected.c)===2){
+        if(c===6){ board[r][5]=board[r][7]; board[r][7]=null; }
+        if(c===2){ board[r][3]=board[r][0]; board[r][0]=null; }
+      }
+      if(p==="P" && r===0) promote(r,c,"w");
+      if(p==="p" && r===7) promote(r,c,"b");
+      turn=turn==="w"?"b":"w";
+      playSound(capture);
+      if(!checkGameOver()) setMessage(`Turno: ${(turn==="w")?"Brancas":"Pretas"}`);
     }
-    if(p==="P" && r===0) promote(r,c,"w");
-    if(p==="p" && r===7) promote(r,c,"b");
-    turn=turn==="w"?"b":"w";
-    highlighted=[]; attackSquares=[]; drawBoard();
-    playSound(capture);
-    if(!checkGameOver()) setMessage(`Turno: ${(turn==="w")?"Brancas":"Pretas"}`);
+    selected=null; highlighted=[];
   }
-  dragPiece.remove(); dragPiece=null; drawBoard();
-});
+  drawBoard();
+}
 
 // Inicial
 drawBoard();
