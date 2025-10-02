@@ -156,30 +156,6 @@ function onSquareClick(e){
 // Inicial
 drawBoard();
 setMessage(`Turno: ${(turn==="w")?"Brancas":"Pretas"}`);
-
-// antes de modificar board
-history.push({
-  board: board.map(row => row.slice()), // salva o tabuleiro
-  turn: turn,                           // salva de quem era a vez
-  castling: JSON.parse(JSON.stringify(castlingRights)), // salva roque
-  enPassant: enPassant,                 // salva en passant
-  lastMove: lastMove.map(m => [...m])   // salva último lance
-
-  function undoMove(){
-  if(history.length === 0) return; // nada para desfazer
-
-  let prev = history.pop(); // pega o último estado salvo
-  board = prev.board;
-  turn = prev.turn;
-  castlingRights = prev.castling;
-  enPassant = prev.enPassant;
-  lastMove = prev.lastMove;
-
-  highlighted = [];
-  selected = null;
-
-  drawBoard();
-  setMessage(`Turno: ${(turn==="w")?"Brancas":"Pretas"}`);
 </script>
 </body>
 </html>
