@@ -24,7 +24,7 @@ body { display:flex; justify-content:center; align-items:center; flex-direction:
 <audio id="captureSound" src="https://freesound.org/data/previews/40/40449_634166-lq.mp3"></audio>
 
 <script>
-//  Configuração 
+// -------------------- Configuração --------------------
 let board = [
 ["r","n","b","q","k","b","n","r"],
 ["p","p","p","p","p","p","p","p"],
@@ -40,13 +40,13 @@ let turn="w", gameOver=false, enPassant=null;
 let castlingRights = { w:{K:true,Q:true}, b:{K:true,Q:true} };
 let highlighted=[], lastMove=[], selected=null;
 
-// Utilitários 
+// -------------------- Utilitários --------------------
 function isWhite(p){ return p && p===p.toUpperCase(); }
 function inBounds(r,c){ return r>=0 && r<8 && c>=0 && c<8; }
 function setMessage(msg){ document.getElementById("message").textContent = msg; }
 function playSound(capture=false){ let snd = capture?document.getElementById("captureSound"):document.getElementById("moveSound"); snd.currentTime=0; snd.play(); }
 
-//  Desenho 
+// -------------------- Desenho --------------------
 function drawBoard(){
   const boardDiv = document.getElementById("board");
   boardDiv.innerHTML="";
@@ -67,7 +67,7 @@ function drawBoard(){
   }
 }
 
-//  Lógica do Xadrez 
+// -------------------- Lógica do Xadrez --------------------
 function findKing(color){ for(let r=0;r<8;r++) for(let c=0;c<8;c++){ let p=board[r][c]; if(p && ((color==="w"&&p==="K")||(color==="b"&&p==="k"))) return {r,c}; } return null; }
 function isSquareAttacked(r,c,byColor){ for(let i=0;i<8;i++) for(let j=0;j<8;j++){ let p=board[i][j]; if(!p) continue; if(isWhite(p)!==(byColor==="w")) continue; let moves=generateMoves(i,j,true); for(let m of moves) if(m[0]===r && m[1]===c) return true; } return false; }
 function isInCheck(color){ const king=findKing(color); return king && isSquareAttacked(king.r,king.c,color==="w"?"b":"w"); }
@@ -121,7 +121,7 @@ function checkGameOver(){ if(!hasLegalMoves(turn)){ if(isInCheck(turn)) setMessa
 
 function promote(r,c,color){ let choice=prompt("Promover peão para (Q,R,B,N):","Q"); if(!["Q","R","B","N"].includes(choice.toUpperCase())) choice="Q"; board[r][c]=color==="w"?choice.toUpperCase():choice.toLowerCase(); }
 
-//  Clique 
+// -------------------- Clique --------------------
 function onSquareClick(e){
   if(gameOver) return;
   let r=+e.target.dataset.row, c=+e.target.dataset.col;
